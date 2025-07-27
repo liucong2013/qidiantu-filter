@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         起点图表格筛选 (v6.3 修复懒加载问题)
+// @name         起点图表格筛选 (v6.4 移动端优化)
 // @namespace    http://tampermonkey.net/
-// @version      6.3
-// @description  为起点图(qidiantu.com)增加强大的表格筛选和数据分析功能。支持分类和等级的多选过滤、书名热词分析与筛选，并完美兼容网站的懒加载机制，确保筛选对所有数据有效。
+// @version      6.4
+// @description  为起点图(qidiantu.com)增加强大的表格筛选和数据分析功能。支持分类和等级的多选过滤、书名热词分析与筛选，并完美兼容网站的懒加载机制，确保筛选对所有数据有效。新增移动端显示优化。
 // @author       Gemini
 // @homepageURL  https://github.com/liucong2013/qidiantu-filter
 // @match        https://www.qidiantu.com/shouding/*
@@ -12,6 +12,28 @@
 
 (function() {
     'use strict';
+
+    // 动态添加 viewport meta 标签以优化移动端显示
+    function addViewportMeta() {
+        if (document.querySelector('meta[name="viewport"]')) return;
+        const meta = document.createElement('meta');
+        meta.name = 'viewport';
+        meta.content = 'width=device-width, initial-scale=1.0';
+        document.head.appendChild(meta);
+    }
+
+    // 由于脚本在 document-start 运行，需要确保 head 元素已存在
+    if (document.head) {
+        addViewportMeta();
+    } else {
+        const observer = new MutationObserver(() => {
+            if (document.head) {
+                addViewportMeta();
+                observer.disconnect();
+            }
+        });
+        observer.observe(document.documentElement, { childList: true });
+    }
 
     // --- 样式部分 ---
     GM_addStyle(`
@@ -28,6 +50,26 @@
         .gm-multiselect-dropdown label { display: block; padding: 3px 5px; white-space: nowrap; }
         .gm-multiselect-dropdown label:hover { background-color: #f0f0f0; }
         .gm-multiselect-clear-btn { position: sticky; top: -5px; z-index: 1; width: calc(100% + 10px); margin: -5px -5px 5px -5px; box-sizing: border-box; padding: 5px; text-align: center; border: none; border-bottom: 1px solid #ddd; background: #f5f5f5; cursor: pointer; }
+
+        /* --- 移动端响应式样式 --- */
+        @media (max-width: 768px) {
+            body, .table-bordered { font-size: 14px; }
+            .gm-sticky-toolbar { padding: 5px; display: flex; flex-direction: column; align-items: stretch; }
+            #gm-analyze-hotwords-btn { margin-bottom: 5px; }
+            .gm-multiselect-container { margin: 5px 0; display: block; }
+            .gm-multiselect-button { width: 100%; box-sizing: border-box; text-align: center; }
+            .gm-multiselect-dropdown { width: 98%; box-sizing: border-box; left: 1%; }
+            .table-bordered th, .table-bordered td { padding: 4px; white-space: normal !important; }
+            .table-bordered th:nth-child(1), .table-bordered td:nth-child(1),
+            .table-bordered th:nth-child(3), .table-bordered td:nth-child(3),
+            .table-bordered th:nth-child(5), .table-bordered td:nth-child(5) {
+                min-width: 50px; /* 调整特定列的最小宽度 */
+            }
+            .table-bordered th:nth-child(2), .table-bordered td:nth-child(2) {
+                min-width: 150px; /* 书名列需要更宽 */
+            }
+            #gm-hotword-display-area { text-align: left; }
+        }
     `);
 
     let allTableRows = [];
