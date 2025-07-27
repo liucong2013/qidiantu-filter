@@ -1,5 +1,8 @@
 # 起点图表格筛选增强脚本
 
+[**🚀 立即从 GreasyFork 安装**](https://greasyfork.org/zh-CN/scripts/543774)
+
+
 这是一个为 [起点图](https://www.qidiantu.com/) 网站定制的浏览器脚本，旨在增强其数据表格的浏览体验。通过注入一系列便捷的筛选和分析工具，帮助用户从海量数据中快速定位到自己关心的内容。
 
 ---
@@ -26,6 +29,7 @@
 
 2.  **安装本脚本**：
     点击下方的链接进行安装：
+    - [**从 GreasyFork 安装 (推荐)**](https://greasyfork.org/zh-CN/scripts/543774) (可获取自动更新)
     - [**从 GitHub 安装**](./qidiantu-filter.user.js) (直接安装源文件)
 
 3.  **访问目标页面**：
@@ -38,12 +42,12 @@
 ## 📸 预览
 
 **筛选控件：**
-在表格的“分类”和“等级”列中，会增加一个下拉筛选按钮。激活筛选时，按钮会高亮显示。![image-20250727195030422](C:\Users\Administrator\AppData\Roaming\Typora\typora-user-images\image-20250727195030422.png)
+在表格的“分类”和“等级”列中，会增加一个下拉筛选按钮。激活筛选时，按钮会高亮显示。![筛选控件预览](./doc/image/image-20250727195030422.png)
 
 **热词分析面板：**
 点击“书名热词分析”后，工具栏下方会展开热词区域，展示高频词及其出现次数。点击热词即可筛选。
 
-![image-20250727195047710](C:\Users\Administrator\AppData\Roaming\Typora\typora-user-images\image-20250727195047710.png)
+![热词分析预览](./doc/image/image-20250727195047710.png)
 
 
 
