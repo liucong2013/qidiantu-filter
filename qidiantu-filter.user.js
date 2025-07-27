@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         起点图表格筛选 (v6.0 最终修复版)
+// @name         起点图表格筛选 (v6.3 修复懒加载问题)
 // @namespace    http://tampermonkey.net/
-// @version      6.0
-// @description  通过在 mousedown 事件中阻止默认行为，彻底修复与网站原生排序功能的冲突。
+// @version      6.3
+// @description  修复了因网站懒加载导致筛选无法覆盖全部数据的问题。通过监听表格内容变化，确保筛选始终对所有行有效。
 // @author       Gemini
 // @match        https://www.qidiantu.com/shouding/*
 // @grant        GM_addStyle
@@ -12,7 +12,7 @@
 (function() {
     'use strict';
 
-    // --- 样式部分与之前版本相同 ---
+    // --- 样式部分 ---
     GM_addStyle(`
         .gm-sticky-toolbar { position: sticky; top: 0; background-color: #ffffff; padding: 8px 10px; border-bottom: 1px solid #e0e0e0; box-shadow: 0 2px 4px rgba(0,0,0,0.05); z-index: 1001; }
         #gm-hotword-display-area { padding-top: 8px; border-top: 1px dashed #ccc; margin-top: 8px; text-align: center; }
@@ -21,6 +21,7 @@
         #gm-hotword-clear-btn { display: none; width: 98%; box-sizing: border-box; margin: 8px auto 0 auto; padding: 4px; background-color: #ffe9e9; border: 1px solid #ffd0d0; border-radius: 4px; cursor: pointer; }
         .gm-multiselect-container { position: relative; display: inline-block; margin-left: 8px; font-weight: normal; vertical-align: middle; }
         .gm-multiselect-button, #gm-analyze-hotwords-btn { padding: 4px 10px; border: 1px solid #ccc; border-radius: 4px; background-color: #f8f8f8; cursor: pointer; }
+        .gm-multiselect-button.active { background-color: #007bff; color: white; border-color: #0056b3; }
         .gm-multiselect-dropdown { display: none; position: absolute; background-color: white; border: 1px solid #ccc; border-radius: 4px; padding: 5px; z-index: 1002; max-height: 300px; overflow-y: auto; text-align: left; }
         .gm-multiselect-dropdown.show { display: block; }
         .gm-multiselect-dropdown label { display: block; padding: 3px 5px; white-space: nowrap; }
@@ -32,11 +33,19 @@
     let categoryFilterControl = null;
     let levelFilterControl = null;
     let activeHotword = null;
+    let tableBodyObserver = null; // 新增：用于监听表格内容的观察者
 
     function updateDisplay() {
         if (!categoryFilterControl || !levelFilterControl) return;
         const selectedCategories = categoryFilterControl.getSelected();
         const selectedLevels = levelFilterControl.getSelected();
+
+        categoryFilterControl.container.querySelector('.gm-multiselect-button').classList.toggle('active', selectedCategories.length > 0);
+        levelFilterControl.container.querySelector('.gm-multiselect-button').classList.toggle('active', selectedLevels.length > 0);
+
+        // 每次更新时，都从 DOM 中获取最新的行列表，以应对懒加载
+        allTableRows = Array.from(document.querySelectorAll('.table-bordered tbody tr'));
+
         allTableRows.forEach(row => {
             const category = row.cells[1]?.textContent.trim().match(/\[(.*?)\]/)?.[1] || '';
             const level = row.cells[4]?.textContent.trim() || '';
@@ -53,6 +62,8 @@
         const thead = table.querySelector('thead');
         const tbody = table.querySelector('tbody');
         if (!thead || !tbody) return;
+
+        // 初始获取行数据
         allTableRows = Array.from(tbody.querySelectorAll('tr'));
         if (allTableRows.length === 0) return;
 
@@ -81,18 +92,25 @@
         const categoriesWithOptions = Object.entries(categoryCounts).map(([name, count]) => ({ name, count }));
         const levelsWithOptions = Object.entries(levelCounts).map(([name, count]) => ({ name, count }));
 
-        categoryFilterControl = createMultiSelect(categoriesWithOptions, "分类");
-        levelFilterControl = createMultiSelect(levelsWithOptions, "等级");
+        categoryFilterControl = createMultiSelect(categoriesWithOptions, "分类", updateDisplay);
+        levelFilterControl = createMultiSelect(levelsWithOptions, "等级", updateDisplay);
 
         titleHeader.appendChild(categoryFilterControl.container);
         levelHeader.appendChild(levelFilterControl.container);
 
         analyzeBtn.addEventListener('click', analyzeAndDisplayHotwords);
-        document.body.addEventListener('change', e => {
-            if (e.target.closest('.gm-multiselect-container')) {
-                updateDisplay();
+
+        // --- 核心修复：监听 tbody 的子节点变化 ---
+        if (tableBodyObserver) tableBodyObserver.disconnect(); // 如果已存在，先断开
+        tableBodyObserver = new MutationObserver((mutations) => {
+            // 检查是否有节点被添加
+            const hasAddedNodes = mutations.some(m => m.addedNodes.length > 0);
+            if (hasAddedNodes) {
+                console.log('检测到新行，重新应用筛选。');
+                updateDisplay(); // 当新行被添加时，重新执行筛选逻辑
             }
         });
+        tableBodyObserver.observe(tbody, { childList: true });
     }
 
     function analyzeAndDisplayHotwords() {
@@ -148,11 +166,10 @@
         });
     }
 
-    function createMultiSelect(options, label) {
+    function createMultiSelect(options, label, onChangeCallback) {
         const container = document.createElement('div');
         container.className = 'gm-multiselect-container';
-        
-        // --- 最终修复：阻止默认行为 ---
+
         container.addEventListener('mousedown', e => {
             e.preventDefault();
             e.stopPropagation();
@@ -166,17 +183,21 @@
         dropdown.className = 'gm-multiselect-dropdown';
         container.appendChild(dropdown);
         dropdown.innerHTML = `<button class="gm-multiselect-clear-btn">全部取消</button>${options.map(opt => `<label><input type="checkbox" value="${opt.name}"> ${opt.name} (${opt.count})</label>`).join('')}`;
-        
+
         button.addEventListener('click', e => {
-            e.stopPropagation(); // 仍然需要阻止冒泡以避免关闭菜单
+            e.stopPropagation();
             document.querySelectorAll('.gm-multiselect-dropdown.show').forEach(d => { if (d !== dropdown) d.classList.remove('show'); });
             dropdown.classList.toggle('show');
+        });
+
+        dropdown.addEventListener('change', () => {
+            onChangeCallback();
         });
 
         dropdown.querySelector('.gm-multiselect-clear-btn').addEventListener('click', e => {
             e.stopPropagation();
             dropdown.querySelectorAll('input:checked').forEach(c => { c.checked = false; });
-            container.dispatchEvent(new Event('change', { bubbles: true }));
+            onChangeCallback();
         });
 
         document.addEventListener('click', () => dropdown.classList.remove('show'));
@@ -185,7 +206,7 @@
         return { container, getSelected: () => Array.from(dropdown.querySelectorAll('input:checked')).map(input => input.value) };
     }
 
-    const observer = new MutationObserver((mutationsList, observer) => {
+    const initialObserver = new MutationObserver((mutationsList, observer) => {
         const table = document.querySelector('.table-bordered');
         if (table) {
             observer.disconnect();
@@ -193,6 +214,6 @@
         }
     });
 
-    observer.observe(document.body, { childList: true, subtree: true });
+    initialObserver.observe(document.body, { childList: true, subtree: true });
 
 })();
