@@ -60,7 +60,7 @@
             .gm-multiselect-button { width: 100%; box-sizing: border-box; text-align: center; }
             .gm-multiselect-dropdown { width: 98%; box-sizing: border-box; left: 1%; }
             .table-bordered th, .table-bordered td { padding: 4px; white-space: normal !important; }
-            .table-bordered th:nth-child(1), .table-bordered td:nth-child(1),
+            .table-bordered th:nth-child(1), .table-bordered td:nth-child(1) { min-width: 30px; width: 30px; }
             .table-bordered th:nth-child(3), .table-bordered td:nth-child(3),
             .table-bordered th:nth-child(5), .table-bordered td:nth-child(5) {
                 min-width: 50px; /* 调整特定列的最小宽度 */
@@ -68,6 +68,7 @@
             .table-bordered th:nth-child(2), .table-bordered td:nth-child(2) {
                 min-width: 150px; /* 书名列需要更宽 */
             }
+            .table-bordered th { font-size: 13px; } /* 减小移动端表头字体 */
             #gm-hotword-display-area { text-align: left; }
         }
     `);
