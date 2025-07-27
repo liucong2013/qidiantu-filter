@@ -5,6 +5,8 @@
 // @description  为起点图(qidiantu.com)增加强大的表格筛选和数据分析功能。支持分类和等级的多选过滤、书名热词分析与筛选，并完美兼容网站的懒加载机制。新增书单收录数显示（支持点击刷新）和智能容错功能。
 // @author       Gemini
 // @homepageURL  https://github.com/liucong2013/qidiantu-filter
+// @downloadURL  https://cdn.jsdelivr.net/gh/liucong2013/qidiantu-filter/qidiantu-filter.user.js
+// @updateURL    https://cdn.jsdelivr.net/gh/liucong2013/qidiantu-filter/qidiantu-filter.user.js
 // @match        https://www.qidiantu.com/shouding/*
 // @grant        GM_addStyle
 // @grant        GM_setValue

@@ -1,6 +1,6 @@
 # 起点图表格筛选增强脚本
 
-[**🚀 立即从 GreasyFork 安装**](https://greasyfork.org/zh-CN/scripts/543774)
+[**🚀 立即从 GreasyFork 安装**](https://greasyfork.org/zh-CN/scripts/543774) | [**🚀 从 jsDelivr 安装 (中国地区推荐)**](https://cdn.jsdelivr.net/gh/liucong2013/qidiantu-filter/qidiantu-filter.user.js)
 
 
 这是一个为 [起点图](https://www.qidiantu.com/) 网站定制的浏览器脚本，旨在增强其数据表格的浏览体验。通过注入一系列便捷的筛选和分析工具，帮助用户从海量数据中快速定位到自己关心的内容。
@@ -30,6 +30,7 @@
 2.  **安装本脚本**：
     点击下方的链接进行安装：
     - [**从 GreasyFork 安装 (推荐)**](https://greasyfork.org/zh-CN/scripts/543774) (可获取自动更新)
+    - [**从 jsDelivr 安装 (中国地区推荐)**](https://cdn.jsdelivr.net/gh/liucong2013/qidiantu-filter/qidiantu-filter.user.js) (国内网络加速)
     - [**从 GitHub 安装**](./qidiantu-filter.user.js) (直接安装源文件)
 
 3.  **访问目标页面**：
