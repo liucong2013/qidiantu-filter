@@ -38,14 +38,14 @@
 ## 📸 预览
 
 **筛选控件：**
-在表格的“分类”和“等级”列中，会增加一个下拉筛选按钮。激活筛选时，按钮会高亮显示。
-
-![筛选控件预览](https://raw.githubusercontent.com/your-username/your-repo/main/screenshots/filter-preview.png)
+在表格的“分类”和“等级”列中，会增加一个下拉筛选按钮。激活筛选时，按钮会高亮显示。![image-20250727195030422](C:\Users\Administrator\AppData\Roaming\Typora\typora-user-images\image-20250727195030422.png)
 
 **热词分析面板：**
 点击“书名热词分析”后，工具栏下方会展开热词区域，展示高频词及其出现次数。点击热词即可筛选。
 
-![热词分析预览](https://raw.githubusercontent.com/your-username/your-repo/main/screenshots/hotword-preview.png)
+![image-20250727195047710](C:\Users\Administrator\AppData\Roaming\Typora\typora-user-images\image-20250727195047710.png)
+
+
 
 ## 📝 反馈与贡献
 
