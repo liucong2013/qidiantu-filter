@@ -1,19 +1,52 @@
 // ==UserScript==
-// @name         起点图表格筛选 (v6.4 移动端优化)
+// @name         起点图表格筛选 (v7.1 智能容错)
 // @namespace    http://tampermonkey.net/
-// @version      6.4
-// @description  为起点图(qidiantu.com)增加强大的表格筛选和数据分析功能。支持分类和等级的多选过滤、书名热词分析与筛选，并完美兼容网站的懒加载机制，确保筛选对所有数据有效。新增移动端显示优化。
+// @version      7.1
+// @description  为起点图(qidiantu.com)增加强大的表格筛选和数据分析功能。支持分类和等级的多选过滤、书名热词分析与筛选，并完美兼容网站的懒加载机制。新增书单收录数显示和智能容错功能。
 // @author       Gemini
 // @homepageURL  https://github.com/liucong2013/qidiantu-filter
 // @match        https://www.qidiantu.com/shouding/*
 // @grant        GM_addStyle
+// @grant        GM_setValue
+// @grant        GM_getValue
+// @grant        GM_xmlhttpRequest
 // @run-at       document-start
 // ==/UserScript==
 
 (function() {
     'use strict';
 
-    // 动态添加 viewport meta 标签以优化移动端显示
+    const SCRIPT_NAME = '起点图表格筛选';
+    const log = (...args) => console.log(`[${SCRIPT_NAME}]`, ...args);
+
+    // --- Polyfill for GM_xmlhttpRequest ---
+    if (typeof GM_xmlhttpRequest === 'undefined') {
+        log('GM_xmlhttpRequest is not defined, using a polyfill.');
+        window.GM_xmlhttpRequest = (details) => {
+            return new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open(details.method || 'GET', details.url);
+                for (const header in details.headers) {
+                    xhr.setRequestHeader(header, details.headers[header]);
+                }
+                xhr.onload = () => {
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        details.onload({ responseText: xhr.responseText, status: xhr.status });
+                        resolve();
+                    } else {
+                        if (details.onerror) details.onerror({ status: xhr.status });
+                        reject(new Error(`Request failed with status ${xhr.status}`));
+                    }
+                };
+                xhr.onerror = () => {
+                    if (details.onerror) details.onerror({ status: xhr.status });
+                    reject(new Error('Request failed'));
+                };
+                xhr.send(details.data);
+            });
+        };
+    }
+
     function addViewportMeta() {
         if (document.querySelector('meta[name="viewport"]')) return;
         const meta = document.createElement('meta');
@@ -22,7 +55,6 @@
         document.head.appendChild(meta);
     }
 
-    // 由于脚本在 document-start 运行，需要确保 head 元素已存在
     if (document.head) {
         addViewportMeta();
     } else {
@@ -35,7 +67,6 @@
         observer.observe(document.documentElement, { childList: true });
     }
 
-    // --- 样式部分 ---
     GM_addStyle(`
         .gm-sticky-toolbar { position: sticky; top: 0; background-color: #ffffff; padding: 8px 10px; border-bottom: 1px solid #e0e0e0; box-shadow: 0 2px 4px rgba(0,0,0,0.05); z-index: 1001; }
         #gm-hotword-display-area { padding-top: 8px; border-top: 1px dashed #ccc; margin-top: 8px; text-align: center; }
@@ -50,8 +81,10 @@
         .gm-multiselect-dropdown label { display: block; padding: 3px 5px; white-space: nowrap; }
         .gm-multiselect-dropdown label:hover { background-color: #f0f0f0; }
         .gm-multiselect-clear-btn { position: sticky; top: -5px; z-index: 1; width: calc(100% + 10px); margin: -5px -5px 5px -5px; box-sizing: border-box; padding: 5px; text-align: center; border: none; border-bottom: 1px solid #ddd; background: #f5f5f5; cursor: pointer; }
+        .booklist-count { font-size: 12px; color: #ff6a00; margin-left: 8px; background-color: #fff3e0; padding: 1px 5px; border-radius: 3px; border: 1px solid #ffe0b2; display: inline-flex; align-items: center; }
+        .booklist-spinner { width: 12px; height: 12px; border: 2px solid #ffab40; border-top-color: transparent; border-radius: 50%; display: inline-block; animation: spin 1s linear infinite; margin-right: 4px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
 
-        /* --- 移动端响应式样式 --- */
         @media (max-width: 768px) {
             body, .table-bordered { font-size: 14px; }
             .gm-sticky-toolbar { padding: 5px; display: flex; flex-direction: column; align-items: stretch; }
@@ -62,14 +95,11 @@
             .table-bordered th, .table-bordered td { padding: 4px; white-space: normal !important; }
             .table-bordered th:nth-child(1), .table-bordered td:nth-child(1) { min-width: 30px; width: 30px; }
             .table-bordered th:nth-child(3), .table-bordered td:nth-child(3),
-            .table-bordered th:nth-child(5), .table-bordered td:nth-child(5) {
-                min-width: 50px; /* 调整特定列的最小宽度 */
-            }
-            .table-bordered th:nth-child(2), .table-bordered td:nth-child(2) {
-                min-width: 150px; /* 书名列需要更宽 */
-            }
-            .table-bordered th { font-size: 13px; } /* 减小移动端表头字体 */
+            .table-bordered th:nth-child(5), .table-bordered td:nth-child(5) { min-width: 50px; }
+            .table-bordered th:nth-child(2), .table-bordered td:nth-child(2) { min-width: 150px; }
+            .table-bordered th { font-size: 13px; }
             #gm-hotword-display-area { text-align: left; }
+            .booklist-count { display: block; margin-left: 0; margin-top: 4px; text-align: center; justify-content: center; }
         }
     `);
 
@@ -77,7 +107,124 @@
     let categoryFilterControl = null;
     let levelFilterControl = null;
     let activeHotword = null;
-    let tableBodyObserver = null; // 新增：用于监听表格内容的观察者
+    let tableBodyObserver = null;
+    let booklistFetchQueue = [];
+    let isFetching = false;
+    let consecutiveFailureCount = 0;
+    const MAX_CONSECUTIVE_FAILURES = 5;
+
+    const CACHE_KEY_PREFIX = 'booklist_count_v2_'; // Invalidate old cache
+    const CACHE_EXPIRATION_MS = 30 * 24 * 60 * 60 * 1000; // 30天
+
+    function getRandomDelay(min = 200, max = 500) {
+        return Math.floor(Math.random() * (max - min + 1)) + min;
+    }
+
+    async function fetchBooklistCount(bookUrl, displayElement) {
+        const bookIdMatch = bookUrl.match(/\/info\/(\d+)/);
+        if (!bookIdMatch) {
+            log('Could not extract book ID from URL:', bookUrl);
+            displayElement.textContent = 'ID错误';
+            return false;
+        }
+        const bookId = bookIdMatch[1];
+        const cacheKey = `${CACHE_KEY_PREFIX}${bookId}`;
+
+        try {
+            const cachedData = await GM_getValue(cacheKey);
+            if (cachedData && (Date.now() - cachedData.timestamp < CACHE_EXPIRATION_MS)) {
+                log(`Book ID ${bookId}: Found valid cache. Count: ${cachedData.count}`);
+                displayElement.innerHTML = `书单: ${cachedData.count}`;
+                consecutiveFailureCount = 0; // Reset on cache hit
+                return true;
+            }
+        } catch (e) {
+            log(`Error reading cache for Book ID ${bookId}:`, e);
+        }
+
+        log(`Book ID ${bookId}: No cache, fetching from network.`);
+        displayElement.innerHTML = '<div class="booklist-spinner"></div>查询中...';
+
+        return new Promise((resolve) => {
+            GM_xmlhttpRequest({
+                method: "GET",
+                url: bookUrl.replace('/info/', '/book/'),
+                headers: {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+                    "Referer": "https://www.qidiantu.com/shouding/"
+                },
+                onload: async function(response) {
+                    if (response.status >= 200 && response.status < 300) {
+                        const match = response.responseText.match(/共被(\d+)份书单收录过/);
+                        const count = match ? match[1] : '0';
+                        log(`Book ID ${bookId}: Fetch success. Count: ${count}`);
+                        displayElement.innerHTML = `书单: ${count}`;
+                        consecutiveFailureCount = 0; // Reset on success
+                        try {
+                            await GM_setValue(cacheKey, { count: count, timestamp: Date.now() });
+                        } catch (e) {
+                            log(`Error saving cache for Book ID ${bookId}:`, e);
+                        }
+                        resolve(true);
+                    } else {
+                        log(`Book ID ${bookId}: Fetch failed with status ${response.status}`);
+                        displayElement.textContent = '查询失败';
+                        consecutiveFailureCount++;
+                        resolve(false);
+                    }
+                },
+                onerror: function(error) {
+                    log(`Book ID ${bookId}: Fetch error.`, error);
+                    displayElement.textContent = '查询失败';
+                    consecutiveFailureCount++;
+                    resolve(false);
+                }
+            });
+        });
+    }
+
+    async function processFetchQueue() {
+        if (isFetching) return;
+        if (booklistFetchQueue.length === 0) return;
+
+        isFetching = true;
+        log('Starting to process fetch queue...');
+
+        while (booklistFetchQueue.length > 0) {
+            if (consecutiveFailureCount >= MAX_CONSECUTIVE_FAILURES) {
+                log(`连续获取失败${MAX_CONSECUTIVE_FAILURES}次，自动停止获取。`);
+                booklistFetchQueue.length = 0; // Clear the queue
+                break;
+            }
+
+            const item = booklistFetchQueue.shift();
+            log(`Processing Book URL: ${item.url}. Queue size: ${booklistFetchQueue.length}`);
+            await fetchBooklistCount(item.url, item.element);
+            await new Promise(resolve => setTimeout(resolve, getRandomDelay()));
+        }
+
+        log('All booklist fetch tasks completed or stopped.');
+        isFetching = false;
+    }
+
+    function enqueueBooklistFetch(row) {
+        if (row.dataset.booklistChecked) return;
+        row.dataset.booklistChecked = 'true';
+
+        const link = row.cells[1]?.querySelector('a');
+        if (!link || !link.href) return;
+
+        let countSpan = row.querySelector('.booklist-count');
+        if (!countSpan) {
+            countSpan = document.createElement('span');
+            countSpan.className = 'booklist-count';
+            link.parentNode.appendChild(countSpan);
+        }
+
+        if (booklistFetchQueue.length < 500) {
+            booklistFetchQueue.push({ url: link.href, element: countSpan });
+        }
+    }
 
     function updateDisplay() {
         if (!categoryFilterControl || !levelFilterControl) return;
@@ -87,7 +234,6 @@
         categoryFilterControl.container.querySelector('.gm-multiselect-button').classList.toggle('active', selectedCategories.length > 0);
         levelFilterControl.container.querySelector('.gm-multiselect-button').classList.toggle('active', selectedLevels.length > 0);
 
-        // 每次更新时，都从 DOM 中获取最新的行列表，以应对懒加载
         allTableRows = Array.from(document.querySelectorAll('.table-bordered tbody tr'));
 
         allTableRows.forEach(row => {
@@ -97,17 +243,24 @@
             const categoryMatch = selectedCategories.length === 0 || selectedCategories.includes(category);
             const levelMatch = selectedLevels.length === 0 || selectedLevels.includes(level);
             const hotwordMatch = !activeHotword || title.includes(activeHotword);
-            row.style.display = (categoryMatch && levelMatch && hotwordMatch) ? '' : 'none';
+            const isVisible = categoryMatch && levelMatch && hotwordMatch;
+            row.style.display = isVisible ? '' : 'none';
+
+            if (isVisible) {
+                enqueueBooklistFetch(row);
+            }
         });
+        log('Display updated. Triggering booklist fetch queue.');
+        processFetchQueue();
     }
 
     function initializeControls(table) {
         if (document.querySelector('.gm-sticky-toolbar')) return;
+        log('Initializing controls...');
         const thead = table.querySelector('thead');
         const tbody = table.querySelector('tbody');
         if (!thead || !tbody) return;
 
-        // 初始获取行数据
         allTableRows = Array.from(tbody.querySelectorAll('tr'));
         if (allTableRows.length === 0) return;
 
@@ -144,17 +297,20 @@
 
         analyzeBtn.addEventListener('click', analyzeAndDisplayHotwords);
 
-        // --- 核心修复：监听 tbody 的子节点变化 ---
-        if (tableBodyObserver) tableBodyObserver.disconnect(); // 如果已存在，先断开
+        log('Enqueuing initial visible books for booklist count fetch.');
+        allTableRows.forEach(row => enqueueBooklistFetch(row));
+        processFetchQueue();
+
+        if (tableBodyObserver) tableBodyObserver.disconnect();
         tableBodyObserver = new MutationObserver((mutations) => {
-            // 检查是否有节点被添加
             const hasAddedNodes = mutations.some(m => m.addedNodes.length > 0);
             if (hasAddedNodes) {
-                console.log('检测到新行，重新应用筛选。');
-                updateDisplay(); // 当新行被添加时，重新执行筛选逻辑
+                log('New rows detected, re-applying filter and fetching booklist data.');
+                updateDisplay();
             }
         });
         tableBodyObserver.observe(tbody, { childList: true });
+        log('Controls initialized and table observer is running.');
     }
 
     function analyzeAndDisplayHotwords() {
@@ -253,11 +409,13 @@
     const initialObserver = new MutationObserver((mutationsList, observer) => {
         const table = document.querySelector('.table-bordered');
         if (table) {
+            log('Table element found, initializing script.');
             observer.disconnect();
             initializeControls(table);
         }
     });
 
     initialObserver.observe(document.body, { childList: true, subtree: true });
+    log('Script loaded. Waiting for table element to appear...');
 
 })();
