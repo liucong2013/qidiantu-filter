@@ -1,15 +1,14 @@
 // ==UserScript==
-// @name         起点图表格筛选 (v7.1 智能容错)
+// @name         起点图表格筛选 (v7.3 点击刷新)
 // @namespace    http://tampermonkey.net/
-// @version      7.1
-// @description  为起点图(qidiantu.com)增加强大的表格筛选和数据分析功能。支持分类和等级的多选过滤、书名热词分析与筛选，并完美兼容网站的懒加载机制。新增书单收录数显示和智能容错功能。
+// @version      7.3
+// @description  为起点图(qidiantu.com)增加强大的表格筛选和数据分析功能。支持分类和等级的多选过滤、书名热词分析与筛选，并完美兼容网站的懒加载机制。新增书单收录数显示（支持点击刷新）和智能容错功能。
 // @author       Gemini
 // @homepageURL  https://github.com/liucong2013/qidiantu-filter
 // @match        https://www.qidiantu.com/shouding/*
 // @grant        GM_addStyle
 // @grant        GM_setValue
 // @grant        GM_getValue
-// @grant        GM_xmlhttpRequest
 // @run-at       document-start
 // ==/UserScript==
 
@@ -18,34 +17,6 @@
 
     const SCRIPT_NAME = '起点图表格筛选';
     const log = (...args) => console.log(`[${SCRIPT_NAME}]`, ...args);
-
-    // --- Polyfill for GM_xmlhttpRequest ---
-    if (typeof GM_xmlhttpRequest === 'undefined') {
-        log('GM_xmlhttpRequest is not defined, using a polyfill.');
-        window.GM_xmlhttpRequest = (details) => {
-            return new Promise((resolve, reject) => {
-                const xhr = new XMLHttpRequest();
-                xhr.open(details.method || 'GET', details.url);
-                for (const header in details.headers) {
-                    xhr.setRequestHeader(header, details.headers[header]);
-                }
-                xhr.onload = () => {
-                    if (xhr.status >= 200 && xhr.status < 300) {
-                        details.onload({ responseText: xhr.responseText, status: xhr.status });
-                        resolve();
-                    } else {
-                        if (details.onerror) details.onerror({ status: xhr.status });
-                        reject(new Error(`Request failed with status ${xhr.status}`));
-                    }
-                };
-                xhr.onerror = () => {
-                    if (details.onerror) details.onerror({ status: xhr.status });
-                    reject(new Error('Request failed'));
-                };
-                xhr.send(details.data);
-            });
-        };
-    }
 
     function addViewportMeta() {
         if (document.querySelector('meta[name="viewport"]')) return;
@@ -81,7 +52,8 @@
         .gm-multiselect-dropdown label { display: block; padding: 3px 5px; white-space: nowrap; }
         .gm-multiselect-dropdown label:hover { background-color: #f0f0f0; }
         .gm-multiselect-clear-btn { position: sticky; top: -5px; z-index: 1; width: calc(100% + 10px); margin: -5px -5px 5px -5px; box-sizing: border-box; padding: 5px; text-align: center; border: none; border-bottom: 1px solid #ddd; background: #f5f5f5; cursor: pointer; }
-        .booklist-count { font-size: 12px; color: #ff6a00; margin-left: 8px; background-color: #fff3e0; padding: 1px 5px; border-radius: 3px; border: 1px solid #ffe0b2; display: inline-flex; align-items: center; }
+        .booklist-count { font-size: 12px; color: #ff6a00; margin-left: 8px; background-color: #fff3e0; padding: 1px 5px; border-radius: 3px; border: 1px solid #ffe0b2; display: inline-flex; align-items: center; cursor: pointer; }
+        .booklist-count:hover { background-color: #ffe0b2; }
         .booklist-spinner { width: 12px; height: 12px; border: 2px solid #ffab40; border-top-color: transparent; border-radius: 50%; display: inline-block; animation: spin 1s linear infinite; margin-right: 4px; }
         @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -113,14 +85,14 @@
     let consecutiveFailureCount = 0;
     const MAX_CONSECUTIVE_FAILURES = 5;
 
-    const CACHE_KEY_PREFIX = 'booklist_count_v2_'; // Invalidate old cache
+    const CACHE_KEY_PREFIX = 'booklist_count_v5_'; // Invalidate old cache v4
     const CACHE_EXPIRATION_MS = 30 * 24 * 60 * 60 * 1000; // 30天
 
     function getRandomDelay(min = 200, max = 500) {
         return Math.floor(Math.random() * (max - min + 1)) + min;
     }
 
-    async function fetchBooklistCount(bookUrl, displayElement) {
+    async function fetchBooklistCount(bookUrl, displayElement, force = false) {
         const bookIdMatch = bookUrl.match(/\/info\/(\d+)/);
         if (!bookIdMatch) {
             log('Could not extract book ID from URL:', bookUrl);
@@ -130,57 +102,59 @@
         const bookId = bookIdMatch[1];
         const cacheKey = `${CACHE_KEY_PREFIX}${bookId}`;
 
-        try {
-            const cachedData = await GM_getValue(cacheKey);
-            if (cachedData && (Date.now() - cachedData.timestamp < CACHE_EXPIRATION_MS)) {
-                log(`Book ID ${bookId}: Found valid cache. Count: ${cachedData.count}`);
-                displayElement.innerHTML = `书单: ${cachedData.count}`;
-                consecutiveFailureCount = 0; // Reset on cache hit
-                return true;
+        if (!force) {
+            try {
+                const cachedData = await GM_getValue(cacheKey);
+                if (cachedData && (Date.now() - cachedData.timestamp < CACHE_EXPIRATION_MS)) {
+                    log(`Book ID ${bookId}: Found valid cache. Count: ${cachedData.count}`);
+                    displayElement.innerHTML = `书单: ${cachedData.count}`;
+                    consecutiveFailureCount = 0; // Reset on cache hit
+                    return true;
+                }
+            } catch (e) {
+                log(`Error reading cache for Book ID ${bookId}:`, e);
             }
-        } catch (e) {
-            log(`Error reading cache for Book ID ${bookId}:`, e);
         }
 
-        log(`Book ID ${bookId}: No cache, fetching from network.`);
+        log(`Book ID ${bookId}: ${force ? 'Forced fetch' : 'No cache, fetching from network'}.`);
         displayElement.innerHTML = '<div class="booklist-spinner"></div>查询中...';
 
-        return new Promise((resolve) => {
-            GM_xmlhttpRequest({
-                method: "GET",
-                url: bookUrl.replace('/info/', '/book/'),
+        try {
+            const response = await fetch(bookUrl, {
+                method: 'GET',
+                credentials: 'include',
                 headers: {
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
                     "Referer": "https://www.qidiantu.com/shouding/"
-                },
-                onload: async function(response) {
-                    if (response.status >= 200 && response.status < 300) {
-                        const match = response.responseText.match(/共被(\d+)份书单收录过/);
-                        const count = match ? match[1] : '0';
-                        log(`Book ID ${bookId}: Fetch success. Count: ${count}`);
-                        displayElement.innerHTML = `书单: ${count}`;
-                        consecutiveFailureCount = 0; // Reset on success
-                        try {
-                            await GM_setValue(cacheKey, { count: count, timestamp: Date.now() });
-                        } catch (e) {
-                            log(`Error saving cache for Book ID ${bookId}:`, e);
-                        }
-                        resolve(true);
-                    } else {
-                        log(`Book ID ${bookId}: Fetch failed with status ${response.status}`);
-                        displayElement.textContent = '查询失败';
-                        consecutiveFailureCount++;
-                        resolve(false);
-                    }
-                },
-                onerror: function(error) {
-                    log(`Book ID ${bookId}: Fetch error.`, error);
-                    displayElement.textContent = '查询失败';
-                    consecutiveFailureCount++;
-                    resolve(false);
                 }
             });
-        });
+
+            if (response.ok) {
+                const text = await response.text();
+                const match = text.match(/共被(\d+)份书单收录过/);
+                const rawMatchText = match ? `'${match[0]}'` : 'N/A';
+                const count = match ? match[1] : '0';
+                log(`Book ID ${bookId}: Raw match: ${rawMatchText}, Extracted count: ${count}, URL: ${bookUrl}`);
+                displayElement.innerHTML = `书单: ${count}`;
+                consecutiveFailureCount = 0; // Reset on success
+                try {
+                    await GM_setValue(cacheKey, { count: count, timestamp: Date.now() });
+                } catch (e) {
+                    log(`Error saving cache for Book ID ${bookId}:`, e);
+                }
+                return true;
+            } else {
+                log(`Book ID ${bookId}: Fetch failed with status ${response.status}`);
+                displayElement.textContent = '查询失败';
+                consecutiveFailureCount++;
+                return false;
+            }
+        } catch (error) {
+            log(`Book ID ${bookId}: Fetch error.`, error);
+            displayElement.textContent = '查询失败';
+            consecutiveFailureCount++;
+            return false;
+        }
     }
 
     async function processFetchQueue() {
@@ -199,7 +173,7 @@
 
             const item = booklistFetchQueue.shift();
             log(`Processing Book URL: ${item.url}. Queue size: ${booklistFetchQueue.length}`);
-            await fetchBooklistCount(item.url, item.element);
+            await fetchBooklistCount(item.url, item.element, item.force);
             await new Promise(resolve => setTimeout(resolve, getRandomDelay()));
         }
 
@@ -218,11 +192,17 @@
         if (!countSpan) {
             countSpan = document.createElement('span');
             countSpan.className = 'booklist-count';
+            countSpan.title = '点击刷新';
             link.parentNode.appendChild(countSpan);
+            countSpan.addEventListener('click', (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                fetchBooklistCount(link.href, countSpan, true);
+            });
         }
 
         if (booklistFetchQueue.length < 500) {
-            booklistFetchQueue.push({ url: link.href, element: countSpan });
+            booklistFetchQueue.push({ url: link.href, element: countSpan, force: false });
         }
     }
 
