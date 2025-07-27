@@ -2,8 +2,9 @@
 // @name         起点图表格筛选 (v6.3 修复懒加载问题)
 // @namespace    http://tampermonkey.net/
 // @version      6.3
-// @description  修复了因网站懒加载导致筛选无法覆盖全部数据的问题。通过监听表格内容变化，确保筛选始终对所有行有效。
+// @description  为起点图(qidiantu.com)增加强大的表格筛选和数据分析功能。支持分类和等级的多选过滤、书名热词分析与筛选，并完美兼容网站的懒加载机制，确保筛选对所有数据有效。
 // @author       Gemini
+// @homepageURL  https://github.com/liucong2013/qidiantu-filter
 // @match        https://www.qidiantu.com/shouding/*
 // @grant        GM_addStyle
 // @run-at       document-start
