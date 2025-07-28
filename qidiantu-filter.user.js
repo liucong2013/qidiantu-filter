@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         起点图表格筛选 (v7.3 点击刷新)
+// @name         起点图表格筛选 (v7.4 懒加载优化)
 // @namespace    http://tampermonkey.net/
-// @version      7.3
+// @version      7.4
 // @description  为起点图(qidiantu.com)增加强大的表格筛选和数据分析功能。支持分类和等级的多选过滤、书名热词分析与筛选，并完美兼容网站的懒加载机制。新增书单收录数显示（支持点击刷新）和智能容错功能。
 // @author       Gemini
 // @homepageURL  https://github.com/liucong2013/qidiantu-filter
@@ -86,6 +86,7 @@
     let isFetching = false;
     let consecutiveFailureCount = 0;
     const MAX_CONSECUTIVE_FAILURES = 5;
+    let fetchLimit = 100;
 
     const CACHE_KEY_PREFIX = 'booklist_count_v5_'; // Invalidate old cache v4
     const CACHE_EXPIRATION_MS = 30 * 24 * 60 * 60 * 1000; // 30天
@@ -96,10 +97,13 @@
 
     async function fetchBooklistCount(bookUrl, displayElement, force = false) {
         const bookIdMatch = bookUrl.match(/\/info\/(\d+)/);
+        const row = displayElement.closest('tr');
+
         if (!bookIdMatch) {
             log('Could not extract book ID from URL:', bookUrl);
             displayElement.textContent = 'ID错误';
-            return false;
+            if (row) row.dataset.booklistState = 'failed';
+            return 'error';
         }
         const bookId = bookIdMatch[1];
         const cacheKey = `${CACHE_KEY_PREFIX}${bookId}`;
@@ -110,8 +114,9 @@
                 if (cachedData && (Date.now() - cachedData.timestamp < CACHE_EXPIRATION_MS)) {
                     log(`Book ID ${bookId}: Found valid cache. Count: ${cachedData.count}`);
                     displayElement.innerHTML = `书单: ${cachedData.count}`;
+                    if (row) row.dataset.booklistState = 'fetched';
                     consecutiveFailureCount = 0; // Reset on cache hit
-                    return true;
+                    return 'cache';
                 }
             } catch (e) {
                 log(`Error reading cache for Book ID ${bookId}:`, e);
@@ -138,24 +143,27 @@
                 const count = match ? match[1] : '0';
                 log(`Book ID ${bookId}: Raw match: ${rawMatchText}, Extracted count: ${count}, URL: ${bookUrl}`);
                 displayElement.innerHTML = `书单: ${count}`;
+                if (row) row.dataset.booklistState = 'fetched';
                 consecutiveFailureCount = 0; // Reset on success
                 try {
                     await GM_setValue(cacheKey, { count: count, timestamp: Date.now() });
                 } catch (e) {
                     log(`Error saving cache for Book ID ${bookId}:`, e);
                 }
-                return true;
+                return 'network';
             } else {
                 log(`Book ID ${bookId}: Fetch failed with status ${response.status}`);
                 displayElement.textContent = '查询失败';
+                if (row) row.dataset.booklistState = 'failed';
                 consecutiveFailureCount++;
-                return false;
+                return 'error';
             }
         } catch (error) {
             log(`Book ID ${bookId}: Fetch error.`, error);
             displayElement.textContent = '查询失败';
+            if (row) row.dataset.booklistState = 'failed';
             consecutiveFailureCount++;
-            return false;
+            return 'error';
         }
     }
 
@@ -175,17 +183,19 @@
 
             const item = booklistFetchQueue.shift();
             log(`Processing Book URL: ${item.url}. Queue size: ${booklistFetchQueue.length}`);
-            await fetchBooklistCount(item.url, item.element, item.force);
-            await new Promise(resolve => setTimeout(resolve, getRandomDelay()));
+            const result = await fetchBooklistCount(item.url, item.element, item.force);
+
+            if (result === 'network') {
+                await new Promise(resolve => setTimeout(resolve, getRandomDelay()));
+            }
         }
 
         log('All booklist fetch tasks completed or stopped.');
         isFetching = false;
     }
 
-    function enqueueBooklistFetch(row) {
-        if (row.dataset.booklistChecked) return;
-        row.dataset.booklistChecked = 'true';
+    function enqueueBooklistFetch(row, index) {
+        if (row.dataset.booklistState) return;
 
         const link = row.cells[1]?.querySelector('a');
         if (!link || !link.href) return;
@@ -194,17 +204,29 @@
         if (!countSpan) {
             countSpan = document.createElement('span');
             countSpan.className = 'booklist-count';
-            countSpan.title = '点击刷新';
             link.parentNode.appendChild(countSpan);
+        }
+
+        if (index < fetchLimit) {
+            row.dataset.booklistState = 'queued';
+            countSpan.title = '点击刷新';
             countSpan.addEventListener('click', (e) => {
                 e.stopPropagation();
                 e.preventDefault();
                 fetchBooklistCount(link.href, countSpan, true);
             });
-        }
-
-        if (booklistFetchQueue.length < 500) {
             booklistFetchQueue.push({ url: link.href, element: countSpan, force: false });
+        } else {
+            row.dataset.booklistState = 'unfetched';
+            countSpan.textContent = '未获取';
+            countSpan.title = '点击获取';
+            countSpan.addEventListener('click', (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                fetchLimit = index + 20; 
+                log(`Fetch limit extended to: ${fetchLimit}`);
+                updateDisplay();
+            }, { once: true });
         }
     }
 
@@ -218,6 +240,7 @@
 
         allTableRows = Array.from(document.querySelectorAll('.table-bordered tbody tr'));
 
+        let visibleRowIndex = 0;
         allTableRows.forEach(row => {
             const category = row.cells[1]?.textContent.trim().match(/\[(.*?)\]/)?.[1] || '';
             const level = row.cells[4]?.textContent.trim() || '';
@@ -229,7 +252,8 @@
             row.style.display = isVisible ? '' : 'none';
 
             if (isVisible) {
-                enqueueBooklistFetch(row);
+                enqueueBooklistFetch(row, visibleRowIndex);
+                visibleRowIndex++;
             }
         });
         log('Display updated. Triggering booklist fetch queue.');
@@ -280,8 +304,7 @@
         analyzeBtn.addEventListener('click', analyzeAndDisplayHotwords);
 
         log('Enqueuing initial visible books for booklist count fetch.');
-        allTableRows.forEach(row => enqueueBooklistFetch(row));
-        processFetchQueue();
+        updateDisplay(); // Initial call to setup everything
 
         if (tableBodyObserver) tableBodyObserver.disconnect();
         tableBodyObserver = new MutationObserver((mutations) => {
